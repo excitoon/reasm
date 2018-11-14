@@ -20,8 +20,19 @@ def read_dword(bytes, offset):
 
 def read_virtual(info, bytes, address, size):
     for section in info['sections'].values():
-        if section['address'] <= address and section['address-end'] >= address + size:
+        if section['address'] <= address <= section['address-end']:
             return read_block(bytes, section['raw-offset'] + address - section['address'], size)
+    return None
+
+def read_virtual_until_zero(info, bytes, address):
+    result = b''
+    for section in info['sections'].values():
+        if section['address'] <= address < section['address-end']:
+            i = section['raw-offset'] + address - section['address']
+            while bytes[i] != 0 and i < section['raw-offset'] + section['raw-size']:
+                result += read_block(bytes, i, 1)
+                i += 1
+            return result
     return None
 
 def read_directory(info, bytes, directory):
