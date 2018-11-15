@@ -29,7 +29,7 @@ def read_virtual_until_zero(info, bytes, address):
     for section in info['sections'].values():
         if section['address'] <= address < section['address-end']:
             i = section['raw-offset'] + address - section['address']
-            while bytes[i] != 0 and i < section['raw-offset'] + section['raw-size']:
+            while i < section['raw-offset'] + section['raw-size'] and bytes[i] != 0:
                 result += read_block(bytes, i, 1)
                 i += 1
             return result
