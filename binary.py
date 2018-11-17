@@ -15,8 +15,18 @@ def read_byte(bytes, offset):
 def read_word(bytes, offset):
     return from_bytes(read_block(bytes, offset, 2))
 
+def write_word(bytes, offset, data):
+    bytes[offset] = data & 0xff
+    bytes[offset+1] = (data >> 8) & 0xff
+
 def read_dword(bytes, offset):
     return from_bytes(read_block(bytes, offset, 4))
+
+def write_dword(bytes, offset, data):
+    bytes[offset] = data & 0xff
+    bytes[offset+1] = (data >> 8) & 0xff
+    bytes[offset+2] = (data >> 16) & 0xff
+    bytes[offset+3] = (data >> 24) & 0xff
 
 def read_virtual(info, bytes, address, size):
     for section in info['sections'].values():
