@@ -38,8 +38,11 @@ def write_dword(bytes, offset, data):
 
 def read_virtual(info, bytes, address, size):
     for section in info['sections'].values():
-        if section['address'] <= address <= section['address-end']:
-            return read_block(bytes, section['raw-offset'] + address - section['address'], size)
+        if section['address'] <= address < section['address-end']:
+            if address - section['address'] >= section['raw-size']:
+                return b'\x00'*size
+            else:
+                return read_block(bytes, section['raw-offset'] + address - section['address'], size)
     return None
 
 
