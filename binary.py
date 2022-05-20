@@ -36,6 +36,18 @@ def write_dword(bytes, offset, data):
     bytes[offset+2] = (data >> 16) & 0xff
     bytes[offset+3] = (data >> 24) & 0xff
 
+def update_byte(bytes, offset, value):
+    return bytes[:offset] + value.to_bytes(1, 'little') + bytes[offset+1:]
+
+def update_word(bytes, offset, value):
+    return bytes[:offset] + value.to_bytes(2, 'little') + bytes[offset+2:]
+
+def update_dword(bytes, offset, value):
+    return bytes[:offset] + value.to_bytes(4, 'little') + bytes[offset+4:]
+
+def update_block(bytes, offset, block):
+    return bytes[:offset] + block + bytes[offset+len(block):]
+
 def read_virtual(info, bytes, address, size):
     for section in info['sections'].values():
         if section['address'] <= address < section['address-end']:
