@@ -30,6 +30,9 @@ def write_word(bytes, offset, data):
 def read_dword(bytes, offset):
     return from_bytes(read_block(bytes, offset, 4))
 
+def read_qword(bytes, offset):
+    return from_bytes(read_block(bytes, offset, 8))
+
 def write_dword(bytes, offset, data):
     bytes[offset] = data & 0xff
     bytes[offset+1] = (data >> 8) & 0xff
