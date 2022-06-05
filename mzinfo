@@ -1,0 +1,45 @@
+#!/usr/bin/env python3
+
+import argparse
+import itertools
+import json
+
+import binary
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', type=str, help='path to executable file')
+parser.add_argument('--hex', action='store_true', help='hexadecimal output')
+args = parser.parse_args()
+
+bytes = open(args.path, 'rb').read()
+
+info = {}
+
+mz_header = binary.read_block(bytes, 0, 0x1c)
+assert mz_header[:2] == b'MZ'
+
+info['entry-point'] = binary.read_dword(mz_header, 0x14)
+assert info['entry-point'] != 0
+
+
+# Export.
+
+if args.hex:
+    def hexify(x):
+        if isinstance(x, list):
+            for index, item in enumerate(x):
+                if isinstance(item, int):
+                    x[index] = hex(item)
+                else:
+                    hexify(item)
+        elif isinstance(x, dict):
+            for key, value in x.items():
+                if isinstance(value, int):
+                    x[key] = hex(value)
+                else:
+                    hexify(value)
+
+    hexify(info)
+
+print(json.dumps(info, sort_keys=True, indent=4))
