@@ -1,3 +1,6 @@
+def repr(bytes):
+    return "b'\\x" + '\\x'.join((f'{b:02x}' for b in bytes)) + "'"
+
 def from_bytes(bytes):
     return int.from_bytes(bytes, byteorder='little')
 
