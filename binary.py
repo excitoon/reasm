@@ -54,6 +54,10 @@ def update_dword(bytes, offset, value):
 def update_block(bytes, offset, block):
     return bytes[:offset] + block + bytes[offset+len(block):]
 
+def write_block(bytes, offset, block):
+    assert len(bytes) >= offset+len(block)
+    bytes[offset:offset+len(block)] = block
+
 def read_virtual(info, bytes, address, size):
     for section in info['sections'].values():
         if section['address'] <= address < section['address-end']:
@@ -61,7 +65,8 @@ def read_virtual(info, bytes, address, size):
                 return b'\x00'*size
             else:
                 return read_block(bytes, section['raw-offset'] + address - section['address'], size)
-    return None
+    else:
+        return None
 
 def read_virtual_until_zero(info, bytes, address):
     result = b''
@@ -72,7 +77,16 @@ def read_virtual_until_zero(info, bytes, address):
                 result += read_block(bytes, i, 1)
                 i += 1
             return result
-    return None
+    else:
+        return None
+
+def write_virtual(info, bytes, address, block):
+    for section in info['sections'].values():
+        if section['address'] <= address < section['address-end']:
+            assert address - section['address'] + len(block) <= section['raw-size']
+            return write_block(bytes, section['raw-offset'] + address - section['address'], block)
+    else:
+        assert False
 
 def read_directory(info, bytes, directory):
     return read_virtual(info, bytes, info['directories'][directory]['address'], info['directories'][directory]['size'])

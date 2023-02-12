@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+
+import argparse
+
+import binary
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument('path', type=str, help='path to input file')
+parser.add_argument('output', type=str, help='path to output file')
+parser.add_argument('operation', type=str, help='operation (e.g. set-entry-point, set-relocations)')
+parser.add_argument('arguments', type=str, nargs='*', help='arguments (e.g. cs, ip)')
+args = parser.parse_args()
+
+assert args.operation in (
+    'set-entry-point',
+    'set-relocations'
+)
+
+with open(args.path, 'rb') as f:
+    bytes = bytearray(f.read())
+assert bytes[:2] == b'MZ'
+assert len(bytes) >= 0x1c
+header_size = int.from_bytes(bytes[8:0x0a], 'little') * 0x10
+assert len(bytes) >= header_size
+
+if args.operation == 'set-entry-point':
+    assert len(args.arguments) == 2
+    cs, ip = map(int, args.arguments)
+    bytes[0x14:0x16] = ip.to_bytes(2, 'little')
+    bytes[0x16:0x18] = cs.to_bytes(2, 'little')
+    with open(args.output, 'wb') as f:
+        f.write(bytes)
+
+elif args.operation == 'set-relocations':
+    with open(args.output, 'r+b') as f:
+        relocs_base = int.from_bytes(bytes[0x18:0x1a], 'little')
+        if relocs_base + len(args.arguments)*4 > header_size:
+            old_pages = (header_size + 0x1ff) // 0x200
+            new_pages = (relocs_base + len(arg.arguments)*4 + 0x1ff) // 0x200
+            bytes = bytes[:header_size] + b'\x00'*(new_pages-old_pages)*0x200 + bytes[header_size:]
+            header_size += (new_pages-old_pages)*0x200
+            bytes[8:0x0a] = (header_size//0x10).to_bytes(2, 'little')
+            bytes[4:6] = (int.from_bytes(bytes[4:6], 'little')+new_pages-old_pages).to_bytes(2, 'little')
+        for index, address in enumerate(map(int, args.arguments)):
+            offset = address & 0xffff
+            segment = (address & 0xffff0000) // 0x10
+            assert 0 <= relocs_base+index*4+4 <= header_size
+            bytes[relocs_base+index*4:relocs_base+index*4+4] = offset.to_bytes(2, 'little') + segment.to_bytes(2, 'little')
+        bytes[6:8] = len(args.arguments).to_bytes(2, 'little')
+    with open(args.output, 'wb') as f:
+        f.write(bytes)
