@@ -14,7 +14,9 @@ args = parser.parse_args()
 
 assert args.operation in (
     'set-entry-point',
-    'set-relocations'
+    'set-relocations',
+    'set-minimum-allocation',
+    'set-maximum-allocation',
 )
 
 with open(args.path, 'rb') as f:
@@ -29,6 +31,22 @@ if args.operation == 'set-entry-point':
     cs, ip = map(int, args.arguments)
     bytes[0x14:0x16] = ip.to_bytes(2, 'little')
     bytes[0x16:0x18] = cs.to_bytes(2, 'little')
+    with open(args.output, 'wb') as f:
+        f.write(bytes)
+
+elif args.operation == 'set-minimum-allocation':
+    assert len(args.arguments) == 1
+    allocation, = map(int, args.arguments)
+    assert allocation & 0x0f == 0
+    bytes[0x0a:0x0c] = (allocation >> 4).to_bytes(2, 'little')
+    with open(args.output, 'wb') as f:
+        f.write(bytes)
+
+elif args.operation == 'set-maximum-allocation':
+    assert len(args.arguments) == 1
+    allocation, = map(int, args.arguments)
+    assert allocation & 0x0f == 0
+    bytes[0x0c:0x0e] = (allocation >> 4).to_bytes(2, 'little')
     with open(args.output, 'wb') as f:
         f.write(bytes)
 

@@ -111,6 +111,11 @@ class Pipe(object):
         self.offset += len(result)
         return result
 
+    def read_until_zero(self):
+        result = read_until_zero(self.bytes, self.offset)
+        self.offset += len(result) + 1
+        return result
+
     def read_byte(self):
         result = read_byte(self.bytes, self.offset)
         self.offset += 1
@@ -125,3 +130,6 @@ class Pipe(object):
         result = read_dword(self.bytes, self.offset)
         self.offset += 4
         return result
+
+    def eof(self):
+        return self.offset >= len(self.bytes)

@@ -20,14 +20,15 @@ mz_header = binary.read_block(bytes, 0, 0x1c)
 assert mz_header[:2] == b'MZ'
 
 text_offset = binary.read_word(mz_header, 8) * 0x10
-minimum_allocation = binary.read_word(mz_header, 0x0a) * 0x10
+info['minimum-allocation'] = binary.read_word(mz_header, 0x0a) * 0x10
+info['maximum-allocation'] = binary.read_word(mz_header, 0x0c) * 0x10
 info['load-size'] = binary.read_word(mz_header, 4) * 0x200 - text_offset
 info['text-size'] = (binary.read_word(mz_header, 4) - bool(binary.read_word(mz_header, 2))) * 0x200 + binary.read_word(mz_header, 2) - text_offset
 info['entry-point'] = binary.read_word(mz_header, 0x16)*0x10 + binary.read_word(mz_header, 0x14)
 info['entry-point-segment'] = binary.read_word(mz_header, 0x16)
 info['stack-pointer'] = binary.read_word(mz_header, 0x10) + binary.read_word(mz_header, 0x0e)*0x10
 info['stack-pointer-segment'] = binary.read_word(mz_header, 0x0e)
-info['relocations'] = []
+info['relocations'] = {}
 relocation_table_base = binary.read_word(mz_header, 0x18)
 segments = set()
 for r in range(binary.read_word(mz_header, 6)):
@@ -37,7 +38,7 @@ for r in range(binary.read_word(mz_header, 6)):
         raise RuntimeError(f'Too big relocation {segment:04X}:{offset:04X}.')
     value = binary.read_word(bytes, segment*0x10+offset+text_offset)
     segments.add(value*0x10)
-    info['relocations'].append(segment*0x10+offset)
+    info['relocations'][segment*0x10+offset] = value * 0x10
 
 ranges = [(0, info['text-size'])]
 for a in sorted(segments):
@@ -47,7 +48,7 @@ for a in sorted(segments):
             ranges.insert(i, (s, a))
             break
 
-info['bits'] = 32
+info['bits'] = 16
 info['machine'] = 'IMAGE_FILE_MACHINE_I386'
 info['characteristics'] = ['IMAGE_FILE_EXECUTABLE_IMAGE']
 info['sections'] = {
@@ -65,10 +66,10 @@ info['sections'] = {
         'raw-size': e-s,
     } for s, e in ranges
 }
-if minimum_allocation > 0:
+if info['minimum-allocation'] > 0:
     info['sections']['.bss'] = {
         'address': info['load-size'],
-        'address-end': info['load-size'] + minimum_allocation,
+        'address-end': info['load-size'] + info['minimum-allocation'],
         'characteristics': [
             'IMAGE_SCN_CNT_UNINITIALIZED_DATA',
             'IMAGE_SCN_MEM_READ',
@@ -93,12 +94,16 @@ if args.hex:
                     x[index] = hex(item)
                 else:
                     hexify(item)
+
         elif isinstance(x, dict):
             for key, value in x.items():
                 if isinstance(value, int):
                     x[key] = hex(value)
                 else:
                     hexify(value)
+            y = {hex(k) if isinstance(k, int) else k: v for k, v in x.items()}
+            x.clear()
+            x |= y
 
     hexify(info)
 
