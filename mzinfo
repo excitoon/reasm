@@ -96,24 +96,39 @@ try:
     uninitialized_fill, = binary.find_all(bytes, [0xbf, None, None, 0xb9, None, None, 0x2b, 0xcf, 0xf3, 0xaa])
     initialized_size = int.from_bytes(bytes[uninitialized_fill+1:uninitialized_fill+3], 'little')
     uninitialized_size = int.from_bytes(bytes[uninitialized_fill+4:uninitialized_fill+6], 'little') - initialized_size
+    possible_compilers = ['Turbo C 1.5', 'Turbo C 2.0']
+except Exception:
+    initialized_size = None
+    uninitialized_size = None
+    possible_compilers = None
+
+if initialized_size is None:
+    try:
+        uninitialized_fill, = binary.find_all(bytes, [0xbf, None, None, 0xb9, None, None, 0x2b, 0xcf, 0xfc, 0xf3, 0xaa])
+        initialized_size = int.from_bytes(bytes[uninitialized_fill+1:uninitialized_fill+3], 'little')
+        uninitialized_size = int.from_bytes(bytes[uninitialized_fill+4:uninitialized_fill+6], 'little') - initialized_size
+        possible_compilers = ['Borland C++ 2.0', 'Borland C++ 3.0']
+        memory_model = None
+    except Exception:
+        initialized_size = None
+        uninitialized_size = None
+        possible_compilers = None
+
+try:
     system_break_shift, = binary.find_all(bytes, [0x8b, 0x56, 8, 3, 6, None, None, 0x83, 0xd2, 0, 0x8b, 0xc8, 0x81, 0xc1, 0, 1, 0x83, 0xd2, 0])
     system_break_address = int.from_bytes(bytes[system_break_shift+5:system_break_shift+7], 'little')
     system_break = int.from_bytes(bytes[system_break_address+dseg+text_offset:system_break_address+dseg+text_offset+2], 'little')
     assert system_break == initialized_size + uninitialized_size
-    possible_compilers = ['Turbo C 1.5', 'Turbo C 2.0']
     memory_model = None
 
 except Exception:
-    initialized_size = None
-    uninitialized_size = None
     system_break = None
-    possible_compilers = None
     memory_model = None
 
 info['memory-manager'] = {
     'initialized-size': initialized_size,
     'uninitialized-size': uninitialized_size,
-    'system-break': initialized_size,
+    'system-break': system_break,
 }
 
 # Export.
