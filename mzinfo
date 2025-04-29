@@ -48,11 +48,19 @@ for a in sorted(segments):
             ranges.insert(i, (s, a))
             break
 
+try:
+    dseg_fill, = binary.find_all(bytes, [0xba, None, None, 0x2e, 0x89, 0x16, None, None, 0xb4, 0x30, 0xcd, 0x21, 0x8b, 0x2e, None, None, 0x8b, 0x1e, None, None, 0x8e, 0xda])
+    dseg = int.from_bytes(bytes[dseg_fill+1:dseg_fill+3], 'little') * 0x10
+    possible_compilers = ['Turbo C 1.5', 'Turbo C 2.0']
+except Exception:
+    dseg = None
+    possible_compilers = None
+
 info['bits'] = 16
-info['machine'] = 'IMAGE_FILE_MACHINE_I386'
+info['machine'] = 'IMAGE_FILE_MACHINE_I8086' # Does not exist!
 info['characteristics'] = ['IMAGE_FILE_EXECUTABLE_IMAGE']
 info['sections'] = {
-    f'.text{s//0x10:04x}' if s else '.text': {
+    '.dseg' if s == dseg else f'.text{s//0x10:04x}' if s else '.text': {
         'address': s,
         'address-end': e,
         'characteristics': [
@@ -83,6 +91,30 @@ info['directories'] = {}
 info['imports'] = []
 info['exports'] = []
 info['resources'] = []
+
+try:
+    uninitialized_fill, = binary.find_all(bytes, [0xbf, None, None, 0xb9, None, None, 0x2b, 0xcf, 0xf3, 0xaa])
+    initialized_size = int.from_bytes(bytes[uninitialized_fill+1:uninitialized_fill+3], 'little')
+    uninitialized_size = int.from_bytes(bytes[uninitialized_fill+4:uninitialized_fill+6], 'little') - initialized_size
+    system_break_shift, = binary.find_all(bytes, [0x8b, 0x56, 8, 3, 6, None, None, 0x83, 0xd2, 0, 0x8b, 0xc8, 0x81, 0xc1, 0, 1, 0x83, 0xd2, 0])
+    system_break_address = int.from_bytes(bytes[system_break_shift+5:system_break_shift+7], 'little')
+    system_break = int.from_bytes(bytes[system_break_address+dseg+text_offset:system_break_address+dseg+text_offset+2], 'little')
+    assert system_break == initialized_size + uninitialized_size
+    possible_compilers = ['Turbo C 1.5', 'Turbo C 2.0']
+    memory_model = None
+
+except Exception:
+    initialized_size = None
+    uninitialized_size = None
+    system_break = None
+    possible_compilers = None
+    memory_model = None
+
+info['memory-manager'] = {
+    'initialized-size': initialized_size,
+    'uninitialized-size': uninitialized_size,
+    'system-break': initialized_size,
+}
 
 # Export.
 
