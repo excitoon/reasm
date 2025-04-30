@@ -110,7 +110,7 @@ info['bits'] = 16
 info['machine'] = 'IMAGE_FILE_MACHINE_I8086' # Does not exist!
 info['characteristics'] = ['IMAGE_FILE_EXECUTABLE_IMAGE']
 info['sections'] = {
-    '.text' if s == 0 else '.dseg' if s == dseg else f'.text{s//0x10:04x}': {
+    '.text' if s == 0 else '.data' if s == dseg else f'.text{s//0x10:04x}': {
         'address': s,
         'address-end': e,
         'characteristics': [
