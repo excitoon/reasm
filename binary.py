@@ -1,5 +1,29 @@
+import collections
+import functools
+import lzma
+import math
+import random
+
+
 def repr(bytes):
     return "b'\\x" + '\\x'.join((f'{b:02x}' for b in bytes)) + "'"
+
+
+def shannon(bytes):
+    if len(bytes) == 0:
+        return 0.0
+    denominator = math.log(len(bytes), 2)
+    return -sum((count * (math.log(count, 2) - denominator) for count in collections.Counter(bytes).values())) / len(bytes)
+
+
+@functools.cache
+def default_entropy(n):
+    return len(lzma.compress(random.randbytes(n))) - 32
+
+def entropy(bytes):
+    if len(bytes) == 0:
+        return 8.0
+    return min(8.0, 8.0 * (len(lzma.compress(bytes)) - 32) / default_entropy(len(bytes)))
 
 
 def from_bytes(bytes):
