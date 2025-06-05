@@ -4,17 +4,17 @@ import argparse
 import collections
 import json
 
-import binary
-import mzstartup
+import reasm.binary as binary
+import reasm.mzstartup as mzstartup
 
-
-# FIXME show tail if present
-# FIXME calculate entropy for sections and tail
 
 parser = argparse.ArgumentParser()
 parser.add_argument('path', type=str, help='path to executable file')
 parser.add_argument('--hex', action='store_true', help='hexadecimal output')
+parser.add_argument('--fast', action='store_true', help='skip long checks')
 parser.add_argument('--content', action='store_true', help='output content')
+parser.add_argument('--indent', type=int, default=4, help='indent')
+parser.add_argument('--max-width', type=int, default=160, help='max width')
 args = parser.parse_args()
 
 bytes = open(args.path, 'rb').read()
@@ -22,20 +22,25 @@ bytes = open(args.path, 'rb').read()
 info = {}
 
 mz_header = binary.read_block(bytes, 0, 0x1c)
-assert mz_header[:2] == b'MZ'
+assert mz_header[:2] in b'MZM'
 
-text_offset = binary.read_word(mz_header, 8) * 0x10
+info['text-offset'] = binary.read_word(mz_header, 8) * 0x10
 info['minimum-allocation'] = binary.read_word(mz_header, 0x0a) * 0x10
 info['maximum-allocation'] = binary.read_word(mz_header, 0x0c) * 0x10
-info['load-size'] = binary.read_word(mz_header, 4) * 0x200 - text_offset
-info['text-size'] = (binary.read_word(mz_header, 4) - bool(binary.read_word(mz_header, 2))) * 0x200 + binary.read_word(mz_header, 2) - text_offset
+
+info['load-size'] = binary.read_word(mz_header, 4) * 0x200 - info['text-offset']
+# See:
+# - https://github.com/microsoft/MS-DOS/blob/2d04cacc5322951f187bb17e017c12920ac8ebe2/v2.0/source/EXEC.ASM#L348 ;
+# - https://github.com/microsoft/MS-DOS/blob/2d04cacc5322951f187bb17e017c12920ac8ebe2/v4.0/src/DOS/EXEC.ASM#L318 .
+
+info['text-size'] = (binary.read_word(mz_header, 4) - bool(binary.read_word(mz_header, 2))) * 0x200 + binary.read_word(mz_header, 2) - info['text-offset']
 info['file-size'] = len(bytes)
 info['errors'] = []
 
-if info['text-size'] + text_offset > len(bytes):
-    info['errors'].append(f'Text end address is {hex(info["text-size"] + text_offset)}, but file size is {hex(len(bytes))}.')
+if info['text-size'] + info['text-offset'] > info['file-size']:
+    info['errors'].append(f'Text end address is {hex(info["text-size"] + info["text-offset"])}, but file size is {hex(info["file-size"])}.')
 
-info['entry-point'] = binary.read_word(mz_header, 0x16)*0x10 + binary.read_word(mz_header, 0x14)
+info['entry-point'] = binary.read_word(mz_header, 0x14) + binary.read_word(mz_header, 0x16)*0x10
 info['entry-point-segment'] = binary.read_word(mz_header, 0x16)
 info['stack-pointer'] = binary.read_word(mz_header, 0x10) + binary.read_word(mz_header, 0x0e)*0x10
 info['stack-pointer-segment'] = binary.read_word(mz_header, 0x0e)
@@ -45,22 +50,23 @@ relocation_table_base = binary.read_word(mz_header, 0x18)
 for r in range(binary.read_word(mz_header, 6)):
     offset = binary.read_word(bytes, relocation_table_base + r*4)
     segment = binary.read_word(bytes, relocation_table_base + r*4 + 2)
-    if len(bytes) < segment*0x10+offset+text_offset+2:
-        raise RuntimeError(f'Too big relocation {segment:04X}:{offset:04X}.')
-    value = binary.read_word(bytes, segment*0x10+offset+text_offset)
+    if info['file-size'] < segment*0x10+offset+info['text-offset']+1:
+        info['errors'].append(f'Too big relocation {segment:04X}:{offset:04X}.')
+    value = binary.read_word(bytes, segment*0x10+offset+info['text-offset'])
     info['relocations'][value*0x10].append(segment*0x10+offset)
-info['relocations'] = dict(sorted(info['relocations'].items()))
+info['relocations'] = {x: sorted(y) for x, y in sorted(info['relocations'].items())}
 
 info['compiler'] = None
-for compiler, patterns_alternatives in mzstartup.startups.items():
-    for patterns in patterns_alternatives:
-        for pattern in patterns:
-            if len(binary.find_all(bytes, pattern)) != 1:
+if args.fast is not True:
+    for compiler, patterns_alternatives in mzstartup.startups.items():
+        for patterns in patterns_alternatives:
+            for pattern in patterns:
+                if len(binary.find_all(bytes, pattern)) != 1:
+                    break
+            else:
+                assert info['compiler'] is None
+                info['compiler'] = compiler
                 break
-        else:
-            assert info['compiler'] is None
-            info['compiler'] = compiler
-            break
 
 try:
     # Turbo C 1.5 or Turbo C 2.0?
@@ -81,7 +87,7 @@ except Exception:
         dgroup_address = None
         tiny_model = None
         try:
-            # Some other compilers including Assembler
+            # Some other compilers including Assembler.
             dseg_fill, = binary.find_all(bytes, [0xb8, None, None, 0x8e, 0xd8])
             dseg = int.from_bytes(bytes[dseg_fill+1:dseg_fill+3], 'little') * 0x10
         except Exception:
@@ -90,9 +96,9 @@ except Exception:
 memory_model = None
 if dgroup_address is not None:
     try:
-        droup = int.from_bytes(bytes[dgroup_address+text_offset:dgroup_address+text_offset+2], 'little')
+        droup = int.from_bytes(bytes[dgroup_address+info['text-offset']:dgroup_address+info['text-offset']+2], 'little')
         assert droup == 0
-        memory_model_code = int.from_bytes(bytes[dgroup_address+2+text_offset:dgroup_address+2+text_offset+2], 'little')
+        memory_model_code = int.from_bytes(bytes[dgroup_address+2+info['text-offset']:dgroup_address+2+info['text-offset']+2], 'little')
         memory_models = {0: 'tiny', 1: 'small', 0x8002: 'medium', 0x4003: 'compact', 0xc004: 'large', 0xc005: 'huge'}
         assert memory_model_code in memory_models
         memory_model = memory_models[memory_model_code]
@@ -125,7 +131,7 @@ info['sections'] = {
             'IMAGE_SCN_MEM_READ',
             'IMAGE_SCN_MEM_WRITE'
         ],
-        'raw-offset': text_offset + s,
+        'raw-offset': info['text-offset'] + s,
         'raw-size': e-s,
     } for s, e in ranges
 }
@@ -138,16 +144,16 @@ if info['minimum-allocation'] > 0:
             'IMAGE_SCN_MEM_READ',
             'IMAGE_SCN_MEM_WRITE'
         ],
-        'raw-offset': info['text-size'] + text_offset,
+        'raw-offset': info['text-size'] + info['text-offset'],
         'raw-size': 0,
     }
-if info['text-size'] + text_offset < len(bytes):
+if info['text-size'] + info['text-offset'] < info['file-size']:
     info['sections']['.tail'] = {
-        'address': info['load-size'],
-        'address-end': info['load-size'],
+        'address': info['text-size'],
+        'address-end': min(info['file-size'] - info['text-offset'], info['load-size']),
         'characteristics': [],
-        'raw-offset': info['text-size'] + text_offset,
-        'raw-size': len(bytes) - info['text-size'] - text_offset,
+        'raw-offset': info['text-size'] + info['text-offset'],
+        'raw-size': info['file-size'] - info['text-size'] - info['text-offset'],
     }
 
 for section in info['sections'].values():
@@ -183,7 +189,7 @@ try:
     # Turbo C 1.5 or Turbo C 2.0 FIXME
     system_break_shift, = binary.find_all(bytes, [0x8b, 0x56, 8, 3, 6, None, None, 0x83, 0xd2, 0, 0x8b, 0xc8, 0x81, 0xc1, 0, 1, 0x83, 0xd2, 0])
     system_break_address = int.from_bytes(bytes[system_break_shift+5:system_break_shift+7], 'little')
-    system_break = int.from_bytes(bytes[system_break_address+dseg+text_offset:system_break_address+dseg+text_offset+2], 'little')
+    system_break = int.from_bytes(bytes[system_break_address+dseg+info['text-offset']:system_break_address+dseg+info['text-offset']+2], 'little')
     assert system_break == initialized_size + uninitialized_size
 
 except Exception:
@@ -191,16 +197,16 @@ except Exception:
         # Borland C++ 2.0, Borland C++ 3.0, Borland C++ 3.1, Borland C++ 4.0
         system_break_shift, = binary.find_all(bytes, [0x8b, 0x56, 6, 3, 6, None, None, 0x83, 0xd2, 0, 0x8b, 0xc8, 0x0b, 0xd2, 0x75, 0x10, 0x81, 0xc1, 0])
         system_break_address = int.from_bytes(bytes[system_break_shift+5:system_break_shift+7], 'little')
-        system_break = int.from_bytes(bytes[system_break_address+dseg+text_offset:system_break_address+dseg+text_offset+2], 'little')
+        system_break = int.from_bytes(bytes[system_break_address+dseg+info['text-offset']:system_break_address+dseg+info['text-offset']+2], 'little')
         assert system_break == initialized_size + uninitialized_size
 
     except Exception:
         system_break = None
 
 info['memory-manager'] = {
-    'initialized-size': initialized_size,
-    'uninitialized-size': uninitialized_size,
-    'system-break': system_break,
+    'near-initialized-size': initialized_size,
+    'near-uninitialized-size': uninitialized_size,
+    'near-system-break': system_break,
     'memory-model': memory_model,
 }
 
@@ -229,4 +235,48 @@ if args.hex:
 
     hexify(info)
 
-print(json.dumps(info, indent=4))
+if args.max_width:
+    import uuid
+
+    def mark_lists(x, depth=0):
+        if isinstance(x, dict):
+            x = x.values()
+        elif not isinstance(x, list):
+            return
+        for y in x:
+            mark_lists(y, depth=depth+1)
+        if isinstance(x, list):
+            x[:] = [str(uuid.uuid4())] + x + [str(uuid.uuid4())]
+            by_depth[depth].append((x[0], x[-1]))
+
+    by_depth = collections.defaultdict(list)
+    mark_lists(info)
+
+result = json.dumps(info, indent=args.indent)
+
+if args.max_width:
+    for depth, lists in by_depth.items():
+        for prefix, suffix in lists:
+            start_index = result.rindex('[', 0, result.index(prefix))
+            start_line_index = result.rindex('\n', 0, start_index)
+            end_index = result.index(']', result.index(suffix)) + 1
+            subs = list(map(json.dumps, json.loads(result[start_index:end_index])[1:-1]))
+            initial_indent = args.indent*depth
+            new_indent = args.indent*(depth+1)
+            if start_index - start_line_index + sum(map(len, subs)) + len(subs)*2 <= args.max_width:
+                result = result[:start_index] + '[' + ', '.join(subs) + ']' + result[end_index:]
+            else:
+                lines = ['']
+                i = 1
+                while i != len(subs) + 1:
+                    new_size = (not lines[-1])*new_indent + len(lines[-1]) + bool(lines[-1]) + len(subs[i-1]) + (i != len(subs))
+                    if new_size > args.max_width and lines[-1]:
+                        lines.append('')
+                        continue
+                    lines[-1] = ' '*new_indent if not lines[-1] else lines[-1] + ' '
+                    i, lines[-1] = i + 1, lines[-1] + subs[i-1] + ','[i == len(subs):]
+                result = result[:start_index] + '[\n' + '\n'.join(lines) + '\n' + ' '*initial_indent + ']' + result[end_index:]
+            assert prefix not in result
+            assert suffix not in result
+
+print(result)

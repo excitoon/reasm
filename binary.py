@@ -13,12 +13,13 @@ def shannon(bytes):
     if len(bytes) == 0:
         return 0.0
     denominator = math.log(len(bytes), 2)
-    return -sum((count * (math.log(count, 2) - denominator) for count in collections.Counter(bytes).values())) / len(bytes)
+    return max(0.0, -sum((count * (math.log(count, 2) - denominator) for count in collections.Counter(bytes).values())) / len(bytes))
 
 
 @functools.cache
 def default_entropy(n):
     return len(lzma.compress(random.randbytes(n))) - 32
+
 
 def entropy(bytes):
     if len(bytes) == 0:
@@ -98,9 +99,10 @@ def write_block(bytes, offset, block):
     bytes[offset:offset+len(block)] = block
 
 
-def read_virtual(info, bytes, address, size):
-    for section in info['sections'].values():
-        if section['address'] <= address < section['address-end']:
+def read_virtual(info, bytes, address, size, exact: bool = True):
+    for section in reversed(info['sections'].values()):
+        section_end = section['address-end'] if exact else max(section['address-end'], section['address'] + section['raw-size'])
+        if section['address'] <= address < section_end:
             if address - section['address'] >= section['raw-size']:
                 return b'\x00'*size
             else:
@@ -109,10 +111,11 @@ def read_virtual(info, bytes, address, size):
         return None
 
 
-def read_virtual_until_zero(info, bytes, address):
+def read_virtual_until_zero(info, bytes, address, exact: bool = True):
     result = b''
-    for section in info['sections'].values():
-        if section['address'] <= address < section['address-end']:
+    for section in reversed(info['sections'].values()):
+        section_end = section['address-end'] if exact else max(section['address-end'], section['address'] + section['raw-size'])
+        if section['address'] <= address < section_end:
             i = section['raw-offset'] + address - section['address']
             while i < section['raw-offset'] + section['raw-size'] and bytes[i] != 0:
                 result += read_block(bytes, i, 1)
